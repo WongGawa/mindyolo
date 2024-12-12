@@ -34,6 +34,33 @@ class Residualblock(nn.Cell):
         out = x + self.conv2(self.conv1(x))
         return out
 
+class C2(nn.Cell):
+    # CSP Bottleneck with 2 convolutions
+    def __init__(
+        self, c1, c2, n=1, shortcut=True, g=1, e=0.5, momentum=0.97, eps=1e-3, sync_bn=False
+    ):  # ch_in, ch_out, number, shortcut, groups, expansion
+        super().__init__()
+        self.c = int(c2 * e)  # hidden channels
+        self.cv1 = ConvNormAct(c1, 2 * self.c, 1, 1, momentum=momentum, eps=eps, sync_bn=sync_bn)
+        self.cv2 = ConvNormAct(
+            2 * self.c, c2, 1, momentum=momentum, eps=eps, sync_bn=sync_bn
+        )  # optional act=FReLU(c2)
+        self.m = nn.SequentialCell(
+            [
+                Bottleneck(self.c, self.c, shortcut, k=(3, 3), g=(1, g), e=1.0, momentum=momentum, eps=eps, sync_bn=sync_bn)
+                for _ in range(n)
+            ]
+        )
+        self.concat = ops.Concat(axis=1)
+    
+    def construct(self, x):
+        x = self.cv1(x)
+        _c = x.shape[1] // 2
+        c1, c2 = ops.split(x, axis=1, split_size_or_sections=_c)
+        c3 = self.m(c1)
+        c4 = self.concat((c3, c2))
+        c5 = self.cv2(c4)
+        return c5
 
 class C3(nn.Cell):
     # CSP Bottleneck with 3 convolutions
